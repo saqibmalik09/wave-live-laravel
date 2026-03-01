@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+
+  php:
+    build: ./docker/php
+    container_name: wave_laravel_php
+    volumes:
+      - .:/var/www/laravel
+    networks:
+      - wave_network
+
+  nginx:
+    image: nginx:latest
+    container_name: wave_laravel_nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - .:/var/www/laravel
+      - ./docker/nginx:/etc/nginx/conf.d
+    depends_on:
+      - php
+    networks:
+      - wave_network
+
+networks:
+  wave_network:
+    external: true
