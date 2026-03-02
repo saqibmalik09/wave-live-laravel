@@ -155,4 +155,36 @@ class AuthController extends Controller
 
         return ApiResponse::success([], 'Request submitted. Your account and associated data will be deleted within 30 days. Meantime you can get your account at anytime');
     }
+    // update user profile with name and nick name and about and gender and birthdate and country code and contact number but we will not update email and password in this method we will create separate method for update email and password and in update email method we will send verification email to new email address and in update password method we will ask user to enter current password and new password and confirm new password and if current password is correct then we will update password otherwise we will return error message that current password is incorrect
+    public function updateMyProfile(Request $request)
+    {
+        $user = auth('api')->user();
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'nullable|string|max:255',
+            'nick_name' => 'nullable|string|max:15',
+            'about' => 'nullable|string|max:100',
+            'gender' => 'nullable|in:male,female,other',
+            'birthdate' => 'nullable|date_format:d-m-Y,|before:today|after:01-01-1900',
+            'country_code' => 'nullable|string|max:5',
+            'contact_number' => 'nullable|numeric|digits_between:7,15',
+        ], [
+            'country_code.max' => 'The country code must not exceed 5 characters.',
+            'contact_number.digits_between' => 'The contact number must be between 7 and 15 digits.',
+            'gender .in' => 'The gender field must be one of the following: male,female,other.',
+            'birthdate.date_format' => 'The birthdate does not match the format d-m-Y.',
+        ]);
+        if ($validator->fails()) {
+            return ApiResponse::error($validator->errors()->first(), 200);
+        }
+        $user->name = $request->name ?? $user->name;
+        $user->nick_name = $request->nick_name ?? $user->nick_name;
+        $user->about = $request->about ?? $user->about;
+        $user->gender = $request->gender ?? $user->gender;
+        $user->birthdate = $request->birthdate ?? $user->birthdate;
+        $user->country_code = $request->country_code ?? $user->country_code;
+        $user->contact_number = $request->contact_number ?? $user->contact_number;
+        $user->save();
+        return ApiResponse::success($user, 'Profile updated successfully');
+    }
 }
