@@ -13,8 +13,7 @@ class SettingSeeder extends Seeder
     public function run(): void
     {
         Setting::updateOrCreate(
-            ['key' => 'under_maintenance'],
-            ['value' => false]
+            ['under_maintenance' => false,'created_at' => now(), 'updated_at' => now()],
         );
     }
 }
