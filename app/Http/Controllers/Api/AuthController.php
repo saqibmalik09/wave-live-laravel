@@ -72,6 +72,11 @@ class AuthController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
+            'nick_name' => 'nullable|string|max:15',
+            'about' => 'nullable|string|max:100',
+            'gender' => 'required|in:male,female,other',
+            // minimum age 18 years and maximum age 100 years
+            'birthdate' => 'nullable|date_format:d-m-Y,|before:today,|after:01-01-1900',
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:6|confirmed',
             // must start with + and contain 1-3 digits
@@ -81,6 +86,8 @@ class AuthController extends Controller
             'country_id.numeric' => 'The country id must be a number.',
             'country_id.min' => 'The country id must be at least 1.',
             'contact_number.digits_between' => 'The contact number must be between 7 and 15 digits.',
+            'gender.in' => 'The gender field must be one of the following:  male,female,other.',
+            'birthdate.date_format' => 'The birthdate does not match the format d-m-Y.',
         ]);
 
         if ($validator->fails()) {
@@ -97,7 +104,11 @@ class AuthController extends Controller
             $user = User::create([
                 'public_id' => $public_id,
                 'name' => $request->name,
+                'about' => $request->about??'Hey! I am using ' . env('APP_NAME') . ' app.',
+                'nick_name' => $request->nick_name??$request->name,
                 'email' => $request->email, // normalize
+                'gender'=>$request->gender,
+                'birthdate'=>$request->birthdate,
                 'password' => Hash::make($request->password),
                 'auth_provider' => 'email_and_password',
                 'country_code' => $request->country_code,

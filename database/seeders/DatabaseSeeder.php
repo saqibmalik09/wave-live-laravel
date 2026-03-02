@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             // Seed countries
             $this->call([
                 CountrySeeder::class,
+                SettingSeeder::class,
             ]);
 
             // Create or update admin user
@@ -27,6 +28,8 @@ class DatabaseSeeder extends Seeder
                 ['email' => 'admin@' . env('APP_NAME') . '.com'],
                 [
                     'name' => 'Administrator',
+                    'about' => 'Hey! I am using ' . env('APP_NAME') . ' app.',
+                    'nick_name' => 'Admin',
                     'password' => Hash::make('password'),
                     'auth_provider' => 'email_and_password',
                     'status' => 'active',
