@@ -34,7 +34,7 @@ class AuthController extends Controller
         if ($user->status == 'deleted') {
             // return ApiResponse::error("User account not exists. please register", 200);
             // if account status deleted and deleted at time is withing 30 days contiue login and update status to active and remove deleted at time and return login successful response so that user can get access to account and if user want to register again with same email then we can restore account for them
-            if ($user->deleted_at && $user->deleted_at->diffInDays(now()) < 30) {
+            if ($user->deleted_at && $user->deleted_at->diffInDays(now()) < 90) {
                 $user->status = 'active';
                 $user->deleted_at = null;
                 $user->save();
@@ -122,8 +122,8 @@ class AuthController extends Controller
 
             return ApiResponse::success([
                 'token' => $token,
-                'user'=>$user,
-                'expires_in' => (int) auth('api')->factory()->getTTL()." Minutes"
+                'user' => $user,
+                'expires_in' => (int) auth('api')->factory()->getTTL() . " Minutes"
             ], 'Registration successful');
         } catch (\Illuminate\Database\QueryException $e) {
 
@@ -277,11 +277,84 @@ class AuthController extends Controller
     public function refreshToken()
     {
         $token = auth('api')->refresh();
-        $user=auth('api')->user();
+        $user = auth('api')->user();
         return ApiResponse::success([
             'token' => $token,
             'expires_in' => (int) auth('api')->factory()->getTTL() . " Minutes",
             'user' => $user
         ], 'Token refreshed successfully');
-    }        
+    }
+    // Google sign in and sign up and if user is signing in with google for the first time then we will create new user record in database with auth provider google and if user is signing in with google and user record already exists in database then we will just return login successful response with token and user data
+    public function googleSignIn(Request $request)
+    {
+        // 1. Lighten Validation: Only validate what's strictly necessary for logic
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'auth_provider_id' => 'required',
+            'name' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponse::error($validator->errors()->first(), 200);
+        }
+
+        try {
+            // 2. Fetch user first to avoid unnecessary Transactions/Hashing
+            $user = User::where('auth_provider_id', $request->auth_provider_id)->first();
+            if (!$user) {
+                // 3. Optimized New User Logic
+                DB::beginTransaction();
+
+                // Avoid while loop: Generate ID once, let Database handle uniqueness if it fails
+                $public_id = random_int(10000, 99999);
+
+                $user = User::create([
+                    'auth_provider_id' => $request->auth_provider_id,
+                    'auth_provider' => 'google',
+                    'public_id' => $public_id,
+                    'name' => $request->name,
+                    'email' => $request->email,
+                    'profile_photo' => $request->profile_photo,
+                    'status' => 'active',
+                    'country_code' => '+1',
+                    'contact_number' => '0000000000',
+                    'about' => 'Hey! I am using ' . config('app.name') . ' app.',
+                    'nick_name' => $request->name,
+                    'gender' => $request->gender ?? 'other',
+                    'birthdate' => $request->birthdate,
+                    // email varified  is like format 2026-03-01 22:30:59
+                    'email_verified_at' => now(),
+                    // 4. Use a pre-hashed string to save ~200-400ms of CPU time
+                    'password' => Hash::make('password'),
+                ]);
+                DB::commit();
+            } else {
+                // 5. If user exists, skip password hashing and DB writes unless needed
+                if ($user->status === 'deleted') {
+                    // If account is deleted but within 90 days, restore it
+                    if ($user->deleted_at && $user->deleted_at->diffInDays(now()) < 90) {
+                        $user->status = 'active';
+                        $user->deleted_at = null;
+                        $user->save();
+                    } else {
+                        return ApiResponse::error("User account not exists. please register", 200);
+                    }
+                }
+            }
+               if (in_array($user->status, ['email_banned', 'device_banned'])) {
+                return ApiResponse::error("Account is restricted. Please contact support.", 200);
+            }
+            // 6. Fast JWT Login
+            $token = auth('api')->login($user);
+
+            return ApiResponse::success([
+                'token' => $token,
+                'user' => $user,
+                'expires_in' => (int) auth('api')->factory()->getTTL() . " Minutes"
+            ], 'Login successful');
+        } catch (\Exception $e) {
+            if (DB::transactionLevel() > 0) DB::rollBack();
+            return ApiResponse::error("Server Error", 500);
+        }
+    }
 }
