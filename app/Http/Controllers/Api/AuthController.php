@@ -116,15 +116,15 @@ class AuthController extends Controller
                 'contact_number' => $request->contact_number,
             ]);
 
-            // $token = auth('api')->login($user);
+            $token = auth('api')->login($user);
 
-            // DB::commit();
+            DB::commit();
 
-            // return ApiResponse::success([
-            //     'token' => $token,
-            //     'user'=>$user,
-            //     'expires_in' => (int) auth('api')->factory()->getTTL()." Minutes"
-            // ], 'Registration successful');
+            return ApiResponse::success([
+                'token' => $token,
+                'user'=>$user,
+                'expires_in' => (int) auth('api')->factory()->getTTL()." Minutes"
+            ], 'Registration successful');
         } catch (\Illuminate\Database\QueryException $e) {
 
             DB::rollBack();
