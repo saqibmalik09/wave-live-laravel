@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\Hash;
 use App\Helpers\ApiResponse;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\SendSimpleLoginOtpMail;
 
 class AuthController extends Controller
 {
@@ -64,7 +65,7 @@ class AuthController extends Controller
         return ApiResponse::success([
             'token' => $token,
             'user' => $user,
-            'expires_in' => (int) auth('api')->factory()->getTTL()." Minutes"
+            'expires_in' => (int) auth('api')->factory()->getTTL() . " Minutes"
         ], 'Login successful');
     }
     public function simpleregister(Request $request)
@@ -80,7 +81,7 @@ class AuthController extends Controller
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:6|confirmed',
             // must start with + and contain 1-3 digits
-            'country_id' => 'nullable|numeric|min:1',  
+            'country_id' => 'nullable|numeric|min:1',
             'contact_number' => 'nullable|numeric|digits_between:7,15',
         ], [
             'country_id.numeric' => 'The country id must be a number.',
@@ -104,26 +105,26 @@ class AuthController extends Controller
             $user = User::create([
                 'public_id' => $public_id,
                 'name' => $request->name,
-                'about' => $request->about??'Hey! I am using ' . env('APP_NAME') . ' app.',
-                'nick_name' => $request->nick_name??$request->name,
+                'about' => $request->about ?? 'Hey! I am using ' . env('APP_NAME') . ' app.',
+                'nick_name' => $request->nick_name ?? $request->name,
                 'email' => $request->email, // normalize
-                'gender'=>$request->gender,
-                'birthdate'=>$request->birthdate,
+                'gender' => $request->gender,
+                'birthdate' => $request->birthdate,
                 'password' => Hash::make($request->password),
                 'auth_provider' => 'email_and_password',
                 'country_code' => $request->country_code,
                 'contact_number' => $request->contact_number,
             ]);
 
-            $token = auth('api')->login($user);
+            // $token = auth('api')->login($user);
 
-            DB::commit();
+            // DB::commit();
 
-            return ApiResponse::success([
-                'token' => $token,
-                'user'=>$user,
-                'expires_in' => (int) auth('api')->factory()->getTTL()." Minutes"
-            ], 'Registration successful');
+            // return ApiResponse::success([
+            //     'token' => $token,
+            //     'user'=>$user,
+            //     'expires_in' => (int) auth('api')->factory()->getTTL()." Minutes"
+            // ], 'Registration successful');
         } catch (\Illuminate\Database\QueryException $e) {
 
             DB::rollBack();
@@ -187,4 +188,100 @@ class AuthController extends Controller
         $user->save();
         return ApiResponse::success($user, 'Profile updated successfully');
     }
+    // change password with require current password and new password and confirm new password and if current password is correct then update password otherwise return error message that current password is incorrect
+    public function changePassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:6|confirmed',
+        ]);
+        if ($validator->fails()) {
+            return ApiResponse::error($validator->errors()->first(), 200);
+        }
+        $user = auth('api')->user();
+        if (!Hash::check($request->current_password, $user->password)) {
+            return ApiResponse::error('Current password is incorrect', 200);
+        }
+        // if new password is same as current password then return error message that new password must be different from current password
+        if (Hash::check($request->new_password, $user->password)) {
+            return ApiResponse::error('New password must be different from previously used password', 200);
+        }
+        $user->password = Hash::make($request->new_password);
+        $user->save();
+        return ApiResponse::success([], 'Password changed successfully');
+    }
+    // reset password  with require email to send mail otp 4 digit to user
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|exists:users,email',
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponse::error($validator->errors()->first(), 200);
+        }
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return ApiResponse::error('User account does not exist', 200);
+        }
+        // generate otp 4 digit
+        $otp = rand(1000, 9999);
+        // save otp to password_resets table with email and otp and created_at time
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $request->email],
+            ['token' => Hash::make($otp), 'created_at' => now()]
+        );
+        // send otp to user email
+        Mail::to($request->email)->send(new SendSimpleLoginOtpMail($user->name, $otp));
+        return ApiResponse::success([], 'OTP sent to your email. Please check your email and use that OTP to reset your password.');
+    }
+    // varify otp and reset password with require email and otp and new password and confirm new password and if otp is correct then update password otherwise return error message that otp is incorrect
+    public function verifyOtpAndResetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|exists:users,email',
+            'otp' => 'required|digits:4',
+            'new_password' => 'required|string|min:6|confirmed',
+        ]);
+        if ($validator->fails()) {
+            return ApiResponse::error($validator->errors()->first(), 200);
+        }
+        $passwordReset = DB::table('password_reset_tokens')->where('email', $request->email)->first();
+        if (!$passwordReset) {
+            return ApiResponse::error('Invalid OTP or email', 200);
+        }
+        if (!Hash::check($request->otp, $passwordReset->token)) {
+            return ApiResponse::error('Invalid OTP', 200);
+        }
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return ApiResponse::error('User not found', 200);
+        }
+        // varify otp created at time is within 30 minutes
+        if (now()->diffInMinutes($passwordReset->created_at) > 30) {
+            return ApiResponse::error('OTP expired. Please request a new OTP.', 200);
+        }
+        // varify user is entered otp is correct or not if correct then update password otherwise return error message that otp is incorrect
+        if (!Hash::check($request->otp, $passwordReset->token)) {
+            return ApiResponse::error('Invalid OTP', 200);
+        }
+
+
+
+        $user->password = Hash::make($request->new_password);
+        $user->save();
+        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+        return ApiResponse::success([], 'Password reset successfully');
+    }
+    // refresh token
+    public function refreshToken()
+    {
+        $token = auth('api')->refresh();
+        $user=auth('api')->user();
+        return ApiResponse::success([
+            'token' => $token,
+            'expires_in' => (int) auth('api')->factory()->getTTL() . " Minutes",
+            'user' => $user
+        ], 'Token refreshed successfully');
+    }        
 }
